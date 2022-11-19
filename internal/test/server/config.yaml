@@ -1,6 +1,5 @@
 package: server
 generate:
-  fiber-server: true
+  chi-server: true
   models: true
-  strict-server: true
 output: server.gen.go
