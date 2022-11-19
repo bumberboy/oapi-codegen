@@ -4,13 +4,14 @@
 package server
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"time"
 
 	"github.com/deepmap/oapi-codegen/pkg/runtime"
 	openapi_types "github.com/deepmap/oapi-codegen/pkg/types"
-	"github.com/go-chi/chi/v5"
+	"github.com/gofiber/fiber/v2"
 )
 
 // Defines values for GetWithContentTypeParamsContentType.
@@ -131,463 +132,741 @@ type UpdateResource3JSONRequestBody UpdateResource3JSONBody
 type ServerInterface interface {
 	// get every type optional
 	// (GET /every-type-optional)
-	GetEveryTypeOptional(w http.ResponseWriter, r *http.Request)
+	GetEveryTypeOptional(ctx *fiber.Ctx) error
 	// Get resource via simple path
 	// (GET /get-simple)
-	GetSimple(w http.ResponseWriter, r *http.Request)
+	GetSimple(ctx *fiber.Ctx) error
 	// Getter with referenced parameter and referenced response
 	// (GET /get-with-args)
-	GetWithArgs(w http.ResponseWriter, r *http.Request, params GetWithArgsParams)
+	GetWithArgs(ctx *fiber.Ctx, params GetWithArgsParams) error
 	// Getter with referenced parameter and referenced response
 	// (GET /get-with-references/{global_argument}/{argument})
-	GetWithReferences(w http.ResponseWriter, r *http.Request, globalArgument int64, argument Argument)
+	GetWithReferences(ctx *fiber.Ctx, globalArgument int64, argument Argument) error
 	// Get an object by ID
 	// (GET /get-with-type/{content_type})
-	GetWithContentType(w http.ResponseWriter, r *http.Request, contentType GetWithContentTypeParamsContentType)
+	GetWithContentType(ctx *fiber.Ctx, contentType GetWithContentTypeParamsContentType) error
 	// get with reserved keyword
 	// (GET /reserved-keyword)
-	GetReservedKeyword(w http.ResponseWriter, r *http.Request)
+	GetReservedKeyword(ctx *fiber.Ctx) error
 	// Create a resource
 	// (POST /resource/{argument})
-	CreateResource(w http.ResponseWriter, r *http.Request, argument Argument)
+	CreateResource(ctx *fiber.Ctx, argument Argument) error
 	// Create a resource with inline parameter
 	// (POST /resource2/{inline_argument})
-	CreateResource2(w http.ResponseWriter, r *http.Request, inlineArgument int, params CreateResource2Params)
+	CreateResource2(ctx *fiber.Ctx, inlineArgument int, params CreateResource2Params) error
 	// Update a resource with inline body. The parameter name is a reserved
 	// keyword, so make sure that gets prefixed to avoid syntax errors
 	// (PUT /resource3/{fallthrough})
-	UpdateResource3(w http.ResponseWriter, r *http.Request, pFallthrough int)
+	UpdateResource3(ctx *fiber.Ctx, pFallthrough int) error
 	// get response with reference
 	// (GET /response-with-reference)
-	GetResponseWithReference(w http.ResponseWriter, r *http.Request)
+	GetResponseWithReference(ctx *fiber.Ctx) error
 }
 
-// ServerInterfaceWrapper converts contexts to parameters.
+// ServerInterfaceWrapper converts fiber contexts to parameters.
 type ServerInterfaceWrapper struct {
 	Handler            ServerInterface
 	HandlerMiddlewares []MiddlewareFunc
-	ErrorHandlerFunc   func(w http.ResponseWriter, r *http.Request, err error)
+	ErrorHandler       func(*fiber.Ctx, error, int)
 }
 
-type MiddlewareFunc func(http.Handler) http.Handler
+type MiddlewareFunc func(http.HandlerFunc) http.HandlerFunc
 
-// GetEveryTypeOptional operation middleware
-func (siw *ServerInterfaceWrapper) GetEveryTypeOptional(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
+// GetEveryTypeOptional converts fiber context to params.
+func (w *ServerInterfaceWrapper) GetEveryTypeOptional(ctx *fiber.Ctx) error {
+	var err error
 
-	var handler http.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.GetEveryTypeOptional(w, r)
-	})
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r.WithContext(ctx))
+	// Invoke the callback with all the unmarshalled arguments
+	err = w.Handler.GetEveryTypeOptional(ctx)
+	return err
 }
 
-// GetSimple operation middleware
-func (siw *ServerInterfaceWrapper) GetSimple(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
+// GetSimple converts fiber context to params.
+func (w *ServerInterfaceWrapper) GetSimple(ctx *fiber.Ctx) error {
+	var err error
 
-	var handler http.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.GetSimple(w, r)
-	})
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r.WithContext(ctx))
+	// Invoke the callback with all the unmarshalled arguments
+	err = w.Handler.GetSimple(ctx)
+	return err
 }
 
-// GetWithArgs operation middleware
-func (siw *ServerInterfaceWrapper) GetWithArgs(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-
+// GetWithArgs converts fiber context to params.
+func (w *ServerInterfaceWrapper) GetWithArgs(ctx *fiber.Ctx) error {
 	var err error
 
 	// Parameter object where we will unmarshal all parameters from the context
 	var params GetWithArgsParams
 
-	// ------------- Optional query parameter "optional_argument" -------------
-
-	err = runtime.BindQueryParameter("form", true, false, "optional_argument", r.URL.Query(), &params.OptionalArgument)
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "optional_argument", Err: err})
-		return
+	if err := ctx.QueryParser(&params); err != nil {
+		return fiber.NewError(http.StatusBadRequest, "Error unmarshalling query params")
 	}
 
-	// ------------- Required query parameter "required_argument" -------------
-
-	if paramValue := r.URL.Query().Get("required_argument"); paramValue != "" {
-
-	} else {
-		siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "required_argument"})
-		return
-	}
-
-	err = runtime.BindQueryParameter("form", true, true, "required_argument", r.URL.Query(), &params.RequiredArgument)
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "required_argument", Err: err})
-		return
-	}
-
-	headers := r.Header
-
+	headers := ctx.GetReqHeaders()
 	// ------------- Optional header parameter "header_argument" -------------
-	if valueList, found := headers[http.CanonicalHeaderKey("header_argument")]; found {
+	if headerVal, found := headers[http.CanonicalHeaderKey("header_argument")]; found {
 		var HeaderArgument int32
-		n := len(valueList)
-		if n != 1 {
-			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "header_argument", Count: n})
-			return
-		}
 
-		err = runtime.BindStyledParameterWithLocation("simple", false, "header_argument", runtime.ParamLocationHeader, valueList[0], &HeaderArgument)
+		err = runtime.BindStyledParameterWithLocation("simple", false, "header_argument", runtime.ParamLocationHeader, headerVal, &HeaderArgument)
 		if err != nil {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "header_argument", Err: err})
-			return
+			return fiber.NewError(http.StatusBadRequest, fmt.Sprintf("Invalid format for parameter header_argument: %s", err))
 		}
 
 		params.HeaderArgument = &HeaderArgument
-
 	}
 
-	var handler http.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.GetWithArgs(w, r, params)
-	})
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r.WithContext(ctx))
+	// Invoke the callback with all the unmarshalled arguments
+	err = w.Handler.GetWithArgs(ctx, params)
+	return err
 }
 
-// GetWithReferences operation middleware
-func (siw *ServerInterfaceWrapper) GetWithReferences(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-
+// GetWithReferences converts fiber context to params.
+func (w *ServerInterfaceWrapper) GetWithReferences(ctx *fiber.Ctx) error {
 	var err error
-
 	// ------------- Path parameter "global_argument" -------------
 	var globalArgument int64
 
-	err = runtime.BindStyledParameterWithLocation("simple", false, "global_argument", runtime.ParamLocationPath, chi.URLParam(r, "global_argument"), &globalArgument)
+	err = runtime.BindStyledParameterWithLocation("simple", false, "global_argument", runtime.ParamLocationPath, ctx.Params("global_argument"), &globalArgument)
 	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "global_argument", Err: err})
-		return
+		return fiber.NewError(http.StatusBadRequest, fmt.Sprintf("Invalid format for parameter global_argument: %s", err))
 	}
 
 	// ------------- Path parameter "argument" -------------
 	var argument Argument
 
-	err = runtime.BindStyledParameterWithLocation("simple", false, "argument", runtime.ParamLocationPath, chi.URLParam(r, "argument"), &argument)
+	err = runtime.BindStyledParameterWithLocation("simple", false, "argument", runtime.ParamLocationPath, ctx.Params("argument"), &argument)
 	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "argument", Err: err})
-		return
+		return fiber.NewError(http.StatusBadRequest, fmt.Sprintf("Invalid format for parameter argument: %s", err))
 	}
 
-	var handler http.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.GetWithReferences(w, r, globalArgument, argument)
-	})
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r.WithContext(ctx))
+	// Invoke the callback with all the unmarshalled arguments
+	err = w.Handler.GetWithReferences(ctx, globalArgument, argument)
+	return err
 }
 
-// GetWithContentType operation middleware
-func (siw *ServerInterfaceWrapper) GetWithContentType(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-
+// GetWithContentType converts fiber context to params.
+func (w *ServerInterfaceWrapper) GetWithContentType(ctx *fiber.Ctx) error {
 	var err error
-
 	// ------------- Path parameter "content_type" -------------
 	var contentType GetWithContentTypeParamsContentType
 
-	err = runtime.BindStyledParameterWithLocation("simple", false, "content_type", runtime.ParamLocationPath, chi.URLParam(r, "content_type"), &contentType)
+	err = runtime.BindStyledParameterWithLocation("simple", false, "content_type", runtime.ParamLocationPath, ctx.Params("content_type"), &contentType)
 	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "content_type", Err: err})
-		return
+		return fiber.NewError(http.StatusBadRequest, fmt.Sprintf("Invalid format for parameter content_type: %s", err))
 	}
 
-	var handler http.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.GetWithContentType(w, r, contentType)
-	})
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r.WithContext(ctx))
+	// Invoke the callback with all the unmarshalled arguments
+	err = w.Handler.GetWithContentType(ctx, contentType)
+	return err
 }
 
-// GetReservedKeyword operation middleware
-func (siw *ServerInterfaceWrapper) GetReservedKeyword(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-
-	var handler http.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.GetReservedKeyword(w, r)
-	})
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r.WithContext(ctx))
-}
-
-// CreateResource operation middleware
-func (siw *ServerInterfaceWrapper) CreateResource(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-
+// GetReservedKeyword converts fiber context to params.
+func (w *ServerInterfaceWrapper) GetReservedKeyword(ctx *fiber.Ctx) error {
 	var err error
 
+	// Invoke the callback with all the unmarshalled arguments
+	err = w.Handler.GetReservedKeyword(ctx)
+	return err
+}
+
+// CreateResource converts fiber context to params.
+func (w *ServerInterfaceWrapper) CreateResource(ctx *fiber.Ctx) error {
+	var err error
 	// ------------- Path parameter "argument" -------------
 	var argument Argument
 
-	err = runtime.BindStyledParameterWithLocation("simple", false, "argument", runtime.ParamLocationPath, chi.URLParam(r, "argument"), &argument)
+	err = runtime.BindStyledParameterWithLocation("simple", false, "argument", runtime.ParamLocationPath, ctx.Params("argument"), &argument)
 	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "argument", Err: err})
-		return
+		return fiber.NewError(http.StatusBadRequest, fmt.Sprintf("Invalid format for parameter argument: %s", err))
 	}
 
-	var handler http.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.CreateResource(w, r, argument)
-	})
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r.WithContext(ctx))
+	// Invoke the callback with all the unmarshalled arguments
+	err = w.Handler.CreateResource(ctx, argument)
+	return err
 }
 
-// CreateResource2 operation middleware
-func (siw *ServerInterfaceWrapper) CreateResource2(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-
+// CreateResource2 converts fiber context to params.
+func (w *ServerInterfaceWrapper) CreateResource2(ctx *fiber.Ctx) error {
 	var err error
-
 	// ------------- Path parameter "inline_argument" -------------
 	var inlineArgument int
 
-	err = runtime.BindStyledParameterWithLocation("simple", false, "inline_argument", runtime.ParamLocationPath, chi.URLParam(r, "inline_argument"), &inlineArgument)
+	err = runtime.BindStyledParameterWithLocation("simple", false, "inline_argument", runtime.ParamLocationPath, ctx.Params("inline_argument"), &inlineArgument)
 	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "inline_argument", Err: err})
-		return
+		return fiber.NewError(http.StatusBadRequest, fmt.Sprintf("Invalid format for parameter inline_argument: %s", err))
 	}
 
 	// Parameter object where we will unmarshal all parameters from the context
 	var params CreateResource2Params
 
-	// ------------- Optional query parameter "inline_query_argument" -------------
-
-	err = runtime.BindQueryParameter("form", true, false, "inline_query_argument", r.URL.Query(), &params.InlineQueryArgument)
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "inline_query_argument", Err: err})
-		return
+	if err := ctx.QueryParser(&params); err != nil {
+		return fiber.NewError(http.StatusBadRequest, "Error unmarshalling query params")
 	}
 
-	var handler http.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.CreateResource2(w, r, inlineArgument, params)
-	})
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r.WithContext(ctx))
+	// Invoke the callback with all the unmarshalled arguments
+	err = w.Handler.CreateResource2(ctx, inlineArgument, params)
+	return err
 }
 
-// UpdateResource3 operation middleware
-func (siw *ServerInterfaceWrapper) UpdateResource3(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-
+// UpdateResource3 converts fiber context to params.
+func (w *ServerInterfaceWrapper) UpdateResource3(ctx *fiber.Ctx) error {
 	var err error
-
 	// ------------- Path parameter "fallthrough" -------------
 	var pFallthrough int
 
-	err = runtime.BindStyledParameterWithLocation("simple", false, "fallthrough", runtime.ParamLocationPath, chi.URLParam(r, "fallthrough"), &pFallthrough)
+	err = runtime.BindStyledParameterWithLocation("simple", false, "fallthrough", runtime.ParamLocationPath, ctx.Params("fallthrough"), &pFallthrough)
 	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "fallthrough", Err: err})
-		return
+		return fiber.NewError(http.StatusBadRequest, fmt.Sprintf("Invalid format for parameter fallthrough: %s", err))
 	}
 
-	var handler http.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.UpdateResource3(w, r, pFallthrough)
-	})
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r.WithContext(ctx))
+	// Invoke the callback with all the unmarshalled arguments
+	err = w.Handler.UpdateResource3(ctx, pFallthrough)
+	return err
 }
 
-// GetResponseWithReference operation middleware
-func (siw *ServerInterfaceWrapper) GetResponseWithReference(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
+// GetResponseWithReference converts fiber context to params.
+func (w *ServerInterfaceWrapper) GetResponseWithReference(ctx *fiber.Ctx) error {
+	var err error
 
-	var handler http.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.GetResponseWithReference(w, r)
-	})
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r.WithContext(ctx))
+	// Invoke the callback with all the unmarshalled arguments
+	err = w.Handler.GetResponseWithReference(ctx)
+	return err
 }
 
-type UnescapedCookieParamError struct {
-	ParamName string
-	Err       error
+// FiberServerOptions provides options for the Fiber server.
+type FiberServerOptions struct {
+	BaseURL      string
+	Middlewares  []MiddlewareFunc
+	ErrorHandler func(*fiber.Ctx, error, int)
 }
 
-func (e *UnescapedCookieParamError) Error() string {
-	return fmt.Sprintf("error unescaping cookie parameter '%s'", e.ParamName)
+// RegisterHandlers creates http.Handler with routing matching OpenAPI spec.
+func RegisterHandlers(router fiber.Router, si ServerInterface) fiber.Router {
+	return RegisterHandlersWithOptions(router, si, FiberServerOptions{})
 }
 
-func (e *UnescapedCookieParamError) Unwrap() error {
-	return e.Err
-}
+// RegisterHandlersWithOptions creates http.Handler with additional options
+func RegisterHandlersWithOptions(router fiber.Router, si ServerInterface, options FiberServerOptions) fiber.Router {
 
-type UnmarshallingParamError struct {
-	ParamName string
-	Err       error
-}
+	errorHandler := options.ErrorHandler
 
-func (e *UnmarshallingParamError) Error() string {
-	return fmt.Sprintf("Error unmarshalling parameter %s as JSON: %s", e.ParamName, e.Err.Error())
-}
-
-func (e *UnmarshallingParamError) Unwrap() error {
-	return e.Err
-}
-
-type RequiredParamError struct {
-	ParamName string
-}
-
-func (e *RequiredParamError) Error() string {
-	return fmt.Sprintf("Query argument %s is required, but not found", e.ParamName)
-}
-
-type RequiredHeaderError struct {
-	ParamName string
-	Err       error
-}
-
-func (e *RequiredHeaderError) Error() string {
-	return fmt.Sprintf("Header parameter %s is required, but not found", e.ParamName)
-}
-
-func (e *RequiredHeaderError) Unwrap() error {
-	return e.Err
-}
-
-type InvalidParamFormatError struct {
-	ParamName string
-	Err       error
-}
-
-func (e *InvalidParamFormatError) Error() string {
-	return fmt.Sprintf("Invalid format for parameter %s: %s", e.ParamName, e.Err.Error())
-}
-
-func (e *InvalidParamFormatError) Unwrap() error {
-	return e.Err
-}
-
-type TooManyValuesForParamError struct {
-	ParamName string
-	Count     int
-}
-
-func (e *TooManyValuesForParamError) Error() string {
-	return fmt.Sprintf("Expected one value for %s, got %d", e.ParamName, e.Count)
-}
-
-// Handler creates http.Handler with routing matching OpenAPI spec.
-func Handler(si ServerInterface) http.Handler {
-	return HandlerWithOptions(si, ChiServerOptions{})
-}
-
-type ChiServerOptions struct {
-	BaseURL          string
-	BaseRouter       chi.Router
-	Middlewares      []MiddlewareFunc
-	ErrorHandlerFunc func(w http.ResponseWriter, r *http.Request, err error)
-}
-
-// HandlerFromMux creates http.Handler with routing matching OpenAPI spec based on the provided mux.
-func HandlerFromMux(si ServerInterface, r chi.Router) http.Handler {
-	return HandlerWithOptions(si, ChiServerOptions{
-		BaseRouter: r,
-	})
-}
-
-func HandlerFromMuxWithBaseURL(si ServerInterface, r chi.Router, baseURL string) http.Handler {
-	return HandlerWithOptions(si, ChiServerOptions{
-		BaseURL:    baseURL,
-		BaseRouter: r,
-	})
-}
-
-// HandlerWithOptions creates http.Handler with additional options
-func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handler {
-	r := options.BaseRouter
-
-	if r == nil {
-		r = chi.NewRouter()
-	}
-	if options.ErrorHandlerFunc == nil {
-		options.ErrorHandlerFunc = func(w http.ResponseWriter, r *http.Request, err error) {
-			http.Error(w, err.Error(), http.StatusBadRequest)
+	if errorHandler == nil {
+		errorHandler = func(c *fiber.Ctx, err error, statusCode int) {
+			c.JSON(map[string]string{"error": err.Error()})
 		}
 	}
+
 	wrapper := ServerInterfaceWrapper{
 		Handler:            si,
 		HandlerMiddlewares: options.Middlewares,
-		ErrorHandlerFunc:   options.ErrorHandlerFunc,
+		ErrorHandler:       errorHandler,
 	}
 
-	r.Group(func(r chi.Router) {
-		r.Get(options.BaseURL+"/every-type-optional", wrapper.GetEveryTypeOptional)
-	})
-	r.Group(func(r chi.Router) {
-		r.Get(options.BaseURL+"/get-simple", wrapper.GetSimple)
-	})
-	r.Group(func(r chi.Router) {
-		r.Get(options.BaseURL+"/get-with-args", wrapper.GetWithArgs)
-	})
-	r.Group(func(r chi.Router) {
-		r.Get(options.BaseURL+"/get-with-references/{global_argument}/{argument}", wrapper.GetWithReferences)
-	})
-	r.Group(func(r chi.Router) {
-		r.Get(options.BaseURL+"/get-with-type/{content_type}", wrapper.GetWithContentType)
-	})
-	r.Group(func(r chi.Router) {
-		r.Get(options.BaseURL+"/reserved-keyword", wrapper.GetReservedKeyword)
-	})
-	r.Group(func(r chi.Router) {
-		r.Post(options.BaseURL+"/resource/{argument}", wrapper.CreateResource)
-	})
-	r.Group(func(r chi.Router) {
-		r.Post(options.BaseURL+"/resource2/{inline_argument}", wrapper.CreateResource2)
-	})
-	r.Group(func(r chi.Router) {
-		r.Put(options.BaseURL+"/resource3/{fallthrough}", wrapper.UpdateResource3)
-	})
-	r.Group(func(r chi.Router) {
-		r.Get(options.BaseURL+"/response-with-reference", wrapper.GetResponseWithReference)
-	})
+	router.Get(options.BaseURL+"/every-type-optional", wrapper.GetEveryTypeOptional)
 
-	return r
+	router.Get(options.BaseURL+"/get-simple", wrapper.GetSimple)
+
+	router.Get(options.BaseURL+"/get-with-args", wrapper.GetWithArgs)
+
+	router.Get(options.BaseURL+"/get-with-references/:global_argument/:argument", wrapper.GetWithReferences)
+
+	router.Get(options.BaseURL+"/get-with-type/:content_type", wrapper.GetWithContentType)
+
+	router.Get(options.BaseURL+"/reserved-keyword", wrapper.GetReservedKeyword)
+
+	router.Post(options.BaseURL+"/resource/:argument", wrapper.CreateResource)
+
+	router.Post(options.BaseURL+"/resource2/:inline_argument", wrapper.CreateResource2)
+
+	router.Put(options.BaseURL+"/resource3/:fallthrough", wrapper.UpdateResource3)
+
+	router.Get(options.BaseURL+"/response-with-reference", wrapper.GetResponseWithReference)
+
+	return router
+}
+
+type ResponseWithReferenceJSONResponse SomeObject
+
+type SimpleResponseJSONResponse struct {
+	Name string `json:"name"`
+}
+
+type GetEveryTypeOptionalRequestObject struct {
+}
+
+type GetEveryTypeOptionalResponseObject interface {
+	VisitGetEveryTypeOptionalResponse(c *fiber.Ctx) error
+}
+
+type GetEveryTypeOptional200JSONResponse EveryTypeOptional
+
+func (response GetEveryTypeOptional200JSONResponse) VisitGetEveryTypeOptionalResponse(c *fiber.Ctx) error {
+	c.Set("Content-Type", "application/json")
+
+	return c.JSON(response)
+}
+
+type GetSimpleRequestObject struct {
+}
+
+type GetSimpleResponseObject interface {
+	VisitGetSimpleResponse(c *fiber.Ctx) error
+}
+
+type GetSimple200JSONResponse SomeObject
+
+func (response GetSimple200JSONResponse) VisitGetSimpleResponse(c *fiber.Ctx) error {
+	c.Set("Content-Type", "application/json")
+
+	return c.JSON(response)
+}
+
+type GetWithArgsRequestObject struct {
+	Params GetWithArgsParams
+}
+
+type GetWithArgsResponseObject interface {
+	VisitGetWithArgsResponse(c *fiber.Ctx) error
+}
+
+type GetWithArgs200JSONResponse struct{ SimpleResponseJSONResponse }
+
+func (response GetWithArgs200JSONResponse) VisitGetWithArgsResponse(c *fiber.Ctx) error {
+	c.Set("Content-Type", "application/json")
+
+	return c.JSON(response)
+}
+
+type GetWithReferencesRequestObject struct {
+	GlobalArgument int64    `json:"global_argument"`
+	Argument       Argument `json:"argument"`
+}
+
+type GetWithReferencesResponseObject interface {
+	VisitGetWithReferencesResponse(c *fiber.Ctx) error
+}
+
+type GetWithReferences200JSONResponse struct{ SimpleResponseJSONResponse }
+
+func (response GetWithReferences200JSONResponse) VisitGetWithReferencesResponse(c *fiber.Ctx) error {
+	c.Set("Content-Type", "application/json")
+
+	return c.JSON(response)
+}
+
+type GetWithContentTypeRequestObject struct {
+	ContentType GetWithContentTypeParamsContentType `json:"content_type"`
+}
+
+type GetWithContentTypeResponseObject interface {
+	VisitGetWithContentTypeResponse(c *fiber.Ctx) error
+}
+
+type GetWithContentType200JSONResponse SomeObject
+
+func (response GetWithContentType200JSONResponse) VisitGetWithContentTypeResponse(c *fiber.Ctx) error {
+	c.Set("Content-Type", "application/json")
+
+	return c.JSON(response)
+}
+
+type GetWithContentType200TextResponse string
+
+func (response GetWithContentType200TextResponse) VisitGetWithContentTypeResponse(c *fiber.Ctx) error {
+	c.Set("Content-Type", "text/plain")
+
+	return c.SendString(string(response))
+}
+
+type GetReservedKeywordRequestObject struct {
+}
+
+type GetReservedKeywordResponseObject interface {
+	VisitGetReservedKeywordResponse(c *fiber.Ctx) error
+}
+
+type GetReservedKeyword200JSONResponse ReservedKeyword
+
+func (response GetReservedKeyword200JSONResponse) VisitGetReservedKeywordResponse(c *fiber.Ctx) error {
+	c.Set("Content-Type", "application/json")
+
+	return c.JSON(response)
+}
+
+type CreateResourceRequestObject struct {
+	Argument Argument `json:"argument"`
+	Body     *CreateResourceJSONRequestBody
+}
+
+type CreateResourceResponseObject interface {
+	VisitCreateResourceResponse(c *fiber.Ctx) error
+}
+
+type CreateResource200JSONResponse struct{ SimpleResponseJSONResponse }
+
+func (response CreateResource200JSONResponse) VisitCreateResourceResponse(c *fiber.Ctx) error {
+	c.Set("Content-Type", "application/json")
+
+	return c.JSON(response)
+}
+
+type CreateResource2RequestObject struct {
+	InlineArgument int `json:"inline_argument"`
+	Params         CreateResource2Params
+	Body           *CreateResource2JSONRequestBody
+}
+
+type CreateResource2ResponseObject interface {
+	VisitCreateResource2Response(c *fiber.Ctx) error
+}
+
+type CreateResource2200JSONResponse struct{ SimpleResponseJSONResponse }
+
+func (response CreateResource2200JSONResponse) VisitCreateResource2Response(c *fiber.Ctx) error {
+	c.Set("Content-Type", "application/json")
+
+	return c.JSON(response)
+}
+
+type UpdateResource3RequestObject struct {
+	PFallthrough int `json:"fallthrough"`
+	Body         *UpdateResource3JSONRequestBody
+}
+
+type UpdateResource3ResponseObject interface {
+	VisitUpdateResource3Response(c *fiber.Ctx) error
+}
+
+type UpdateResource3200JSONResponse struct{ SimpleResponseJSONResponse }
+
+func (response UpdateResource3200JSONResponse) VisitUpdateResource3Response(c *fiber.Ctx) error {
+	c.Set("Content-Type", "application/json")
+
+	return c.JSON(response)
+}
+
+type GetResponseWithReferenceRequestObject struct {
+}
+
+type GetResponseWithReferenceResponseObject interface {
+	VisitGetResponseWithReferenceResponse(c *fiber.Ctx) error
+}
+
+type GetResponseWithReference200JSONResponse struct {
+	ResponseWithReferenceJSONResponse
+}
+
+func (response GetResponseWithReference200JSONResponse) VisitGetResponseWithReferenceResponse(c *fiber.Ctx) error {
+	c.Set("Content-Type", "application/json")
+
+	return c.JSON(response)
+}
+
+// StrictServerInterface represents all server handlers.
+type StrictServerInterface interface {
+	// get every type optional
+	// (GET /every-type-optional)
+	GetEveryTypeOptional(ctx context.Context, request GetEveryTypeOptionalRequestObject) (GetEveryTypeOptionalResponseObject, error)
+	// Get resource via simple path
+	// (GET /get-simple)
+	GetSimple(ctx context.Context, request GetSimpleRequestObject) (GetSimpleResponseObject, error)
+	// Getter with referenced parameter and referenced response
+	// (GET /get-with-args)
+	GetWithArgs(ctx context.Context, request GetWithArgsRequestObject) (GetWithArgsResponseObject, error)
+	// Getter with referenced parameter and referenced response
+	// (GET /get-with-references/{global_argument}/{argument})
+	GetWithReferences(ctx context.Context, request GetWithReferencesRequestObject) (GetWithReferencesResponseObject, error)
+	// Get an object by ID
+	// (GET /get-with-type/{content_type})
+	GetWithContentType(ctx context.Context, request GetWithContentTypeRequestObject) (GetWithContentTypeResponseObject, error)
+	// get with reserved keyword
+	// (GET /reserved-keyword)
+	GetReservedKeyword(ctx context.Context, request GetReservedKeywordRequestObject) (GetReservedKeywordResponseObject, error)
+	// Create a resource
+	// (POST /resource/{argument})
+	CreateResource(ctx context.Context, request CreateResourceRequestObject) (CreateResourceResponseObject, error)
+	// Create a resource with inline parameter
+	// (POST /resource2/{inline_argument})
+	CreateResource2(ctx context.Context, request CreateResource2RequestObject) (CreateResource2ResponseObject, error)
+	// Update a resource with inline body. The parameter name is a reserved
+	// keyword, so make sure that gets prefixed to avoid syntax errors
+	// (PUT /resource3/{fallthrough})
+	UpdateResource3(ctx context.Context, request UpdateResource3RequestObject) (UpdateResource3ResponseObject, error)
+	// get response with reference
+	// (GET /response-with-reference)
+	GetResponseWithReference(ctx context.Context, request GetResponseWithReferenceRequestObject) (GetResponseWithReferenceResponseObject, error)
+}
+
+type StrictHandlerFunc func(ctx *fiber.Ctx, args interface{}) (interface{}, error)
+
+type StrictMiddlewareFunc func(f StrictHandlerFunc, operationID string) StrictHandlerFunc
+
+func NewStrictHandler(ssi StrictServerInterface, middlewares []StrictMiddlewareFunc) ServerInterface {
+	return &strictHandler{ssi: ssi, middlewares: middlewares}
+}
+
+type strictHandler struct {
+	ssi         StrictServerInterface
+	middlewares []StrictMiddlewareFunc
+}
+
+// GetEveryTypeOptional operation middleware
+func (sh *strictHandler) GetEveryTypeOptional(ctx *fiber.Ctx) error {
+	var request GetEveryTypeOptionalRequestObject
+
+	handler := func(ctx *fiber.Ctx, request interface{}) (interface{}, error) {
+		return sh.ssi.GetEveryTypeOptional(ctx.Context(), request.(GetEveryTypeOptionalRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetEveryTypeOptional")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		return err
+	} else if validResponse, ok := response.(GetEveryTypeOptionalResponseObject); ok {
+		return validResponse.VisitGetEveryTypeOptionalResponse(ctx)
+	} else if response != nil {
+		return fmt.Errorf("Unexpected response type: %T", response)
+	}
+	return nil
+}
+
+// GetSimple operation middleware
+func (sh *strictHandler) GetSimple(ctx *fiber.Ctx) error {
+	var request GetSimpleRequestObject
+
+	handler := func(ctx *fiber.Ctx, request interface{}) (interface{}, error) {
+		return sh.ssi.GetSimple(ctx.Context(), request.(GetSimpleRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetSimple")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		return err
+	} else if validResponse, ok := response.(GetSimpleResponseObject); ok {
+		return validResponse.VisitGetSimpleResponse(ctx)
+	} else if response != nil {
+		return fmt.Errorf("Unexpected response type: %T", response)
+	}
+	return nil
+}
+
+// GetWithArgs operation middleware
+func (sh *strictHandler) GetWithArgs(ctx *fiber.Ctx, params GetWithArgsParams) error {
+	var request GetWithArgsRequestObject
+
+	request.Params = params
+
+	handler := func(ctx *fiber.Ctx, request interface{}) (interface{}, error) {
+		return sh.ssi.GetWithArgs(ctx.Context(), request.(GetWithArgsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetWithArgs")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		return err
+	} else if validResponse, ok := response.(GetWithArgsResponseObject); ok {
+		return validResponse.VisitGetWithArgsResponse(ctx)
+	} else if response != nil {
+		return fmt.Errorf("Unexpected response type: %T", response)
+	}
+	return nil
+}
+
+// GetWithReferences operation middleware
+func (sh *strictHandler) GetWithReferences(ctx *fiber.Ctx, globalArgument int64, argument Argument) error {
+	var request GetWithReferencesRequestObject
+
+	request.GlobalArgument = globalArgument
+	request.Argument = argument
+
+	handler := func(ctx *fiber.Ctx, request interface{}) (interface{}, error) {
+		return sh.ssi.GetWithReferences(ctx.Context(), request.(GetWithReferencesRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetWithReferences")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		return err
+	} else if validResponse, ok := response.(GetWithReferencesResponseObject); ok {
+		return validResponse.VisitGetWithReferencesResponse(ctx)
+	} else if response != nil {
+		return fmt.Errorf("Unexpected response type: %T", response)
+	}
+	return nil
+}
+
+// GetWithContentType operation middleware
+func (sh *strictHandler) GetWithContentType(ctx *fiber.Ctx, contentType GetWithContentTypeParamsContentType) error {
+	var request GetWithContentTypeRequestObject
+
+	request.ContentType = contentType
+
+	handler := func(ctx *fiber.Ctx, request interface{}) (interface{}, error) {
+		return sh.ssi.GetWithContentType(ctx.Context(), request.(GetWithContentTypeRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetWithContentType")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		return err
+	} else if validResponse, ok := response.(GetWithContentTypeResponseObject); ok {
+		return validResponse.VisitGetWithContentTypeResponse(ctx)
+	} else if response != nil {
+		return fmt.Errorf("Unexpected response type: %T", response)
+	}
+	return nil
+}
+
+// GetReservedKeyword operation middleware
+func (sh *strictHandler) GetReservedKeyword(ctx *fiber.Ctx) error {
+	var request GetReservedKeywordRequestObject
+
+	handler := func(ctx *fiber.Ctx, request interface{}) (interface{}, error) {
+		return sh.ssi.GetReservedKeyword(ctx.Context(), request.(GetReservedKeywordRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetReservedKeyword")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		return err
+	} else if validResponse, ok := response.(GetReservedKeywordResponseObject); ok {
+		return validResponse.VisitGetReservedKeywordResponse(ctx)
+	} else if response != nil {
+		return fmt.Errorf("Unexpected response type: %T", response)
+	}
+	return nil
+}
+
+// CreateResource operation middleware
+func (sh *strictHandler) CreateResource(ctx *fiber.Ctx, argument Argument) error {
+	var request CreateResourceRequestObject
+
+	request.Argument = argument
+
+	var body CreateResourceJSONRequestBody
+	if err := ctx.BodyParser(&body); err != nil {
+		return err
+	}
+	request.Body = &body
+
+	handler := func(ctx *fiber.Ctx, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateResource(ctx.Context(), request.(CreateResourceRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateResource")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		return err
+	} else if validResponse, ok := response.(CreateResourceResponseObject); ok {
+		return validResponse.VisitCreateResourceResponse(ctx)
+	} else if response != nil {
+		return fmt.Errorf("Unexpected response type: %T", response)
+	}
+	return nil
+}
+
+// CreateResource2 operation middleware
+func (sh *strictHandler) CreateResource2(ctx *fiber.Ctx, inlineArgument int, params CreateResource2Params) error {
+	var request CreateResource2RequestObject
+
+	request.InlineArgument = inlineArgument
+	request.Params = params
+
+	var body CreateResource2JSONRequestBody
+	if err := ctx.BodyParser(&body); err != nil {
+		return err
+	}
+	request.Body = &body
+
+	handler := func(ctx *fiber.Ctx, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateResource2(ctx.Context(), request.(CreateResource2RequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateResource2")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		return err
+	} else if validResponse, ok := response.(CreateResource2ResponseObject); ok {
+		return validResponse.VisitCreateResource2Response(ctx)
+	} else if response != nil {
+		return fmt.Errorf("Unexpected response type: %T", response)
+	}
+	return nil
+}
+
+// UpdateResource3 operation middleware
+func (sh *strictHandler) UpdateResource3(ctx *fiber.Ctx, pFallthrough int) error {
+	var request UpdateResource3RequestObject
+
+	request.PFallthrough = pFallthrough
+
+	var body UpdateResource3JSONRequestBody
+	if err := ctx.BodyParser(&body); err != nil {
+		return err
+	}
+	request.Body = &body
+
+	handler := func(ctx *fiber.Ctx, request interface{}) (interface{}, error) {
+		return sh.ssi.UpdateResource3(ctx.Context(), request.(UpdateResource3RequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "UpdateResource3")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		return err
+	} else if validResponse, ok := response.(UpdateResource3ResponseObject); ok {
+		return validResponse.VisitUpdateResource3Response(ctx)
+	} else if response != nil {
+		return fmt.Errorf("Unexpected response type: %T", response)
+	}
+	return nil
+}
+
+// GetResponseWithReference operation middleware
+func (sh *strictHandler) GetResponseWithReference(ctx *fiber.Ctx) error {
+	var request GetResponseWithReferenceRequestObject
+
+	handler := func(ctx *fiber.Ctx, request interface{}) (interface{}, error) {
+		return sh.ssi.GetResponseWithReference(ctx.Context(), request.(GetResponseWithReferenceRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetResponseWithReference")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		return err
+	} else if validResponse, ok := response.(GetResponseWithReferenceResponseObject); ok {
+		return validResponse.VisitGetResponseWithReferenceResponse(ctx)
+	} else if response != nil {
+		return fmt.Errorf("Unexpected response type: %T", response)
+	}
+	return nil
 }

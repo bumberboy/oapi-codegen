@@ -415,6 +415,8 @@ func newConfigFromOldConfig(c oldConfiguration) configuration {
 			opts.Generate.GinServer = true
 		case "gorilla":
 			opts.Generate.GorillaServer = true
+		case "fiber":
+			opts.Generate.FiberServer = true
 		case "strict-server":
 			opts.Generate.Strict = true
 		case "types":

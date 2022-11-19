@@ -16,6 +16,8 @@ package codegen
 import (
 	"bytes"
 	"fmt"
+	"golang.org/x/text/cases"
+	"golang.org/x/text/language"
 	"os"
 	"strings"
 	"text/template"
@@ -280,6 +282,7 @@ var TemplateFunctions = template.FuncMap{
 	"swaggerUriToGorillaUri":     SwaggerUriToGorillaUri,
 	"lcFirst":                    LowercaseFirstCharacter,
 	"ucFirst":                    UppercaseFirstCharacter,
+	"prefixReservedWord":         AddPrefixIfReservedWord,
 	"ucFirstWithPkgName":         UppercaseFirstCharacterWithPkgName,
 	"camelCase":                  ToCamelCase,
 	"genResponsePayload":         genResponsePayload,
@@ -288,7 +291,7 @@ var TemplateFunctions = template.FuncMap{
 	"getResponseTypeDefinitions": getResponseTypeDefinitions,
 	"toStringArray":              toStringArray,
 	"lower":                      strings.ToLower,
-	"title":                      strings.Title,
+	"title":                      cases.Title(language.English).String,
 	"stripNewLines":              stripNewLines,
 	"sanitizeGoIdentity":         SanitizeGoIdentity,
 	"toGoComment":                StringWithTypeNameToGoComment,

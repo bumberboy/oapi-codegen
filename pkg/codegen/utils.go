@@ -104,6 +104,17 @@ func UppercaseFirstCharacter(str string) string {
 	return string(runes)
 }
 
+func AddPrefixIfReservedWord(str string) string {
+	name := LowercaseFirstCharacter(str)
+	if IsGoIdentity(name) {
+		name = "p" + UppercaseFirstCharacter(name)
+	}
+	if unicode.IsNumber([]rune(name)[0]) {
+		name = "n" + name
+	}
+	return name
+}
+
 // Uppercase the first character in a identifier with pkg name. This assumes UTF-8, so we have
 // to be careful with unicode, don't treat it as a byte array.
 func UppercaseFirstCharacterWithPkgName(str string) string {

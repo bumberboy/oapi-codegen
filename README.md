@@ -1,3 +1,6 @@
+# FORKED
+- Added server and strict server codegen for fiber.
+
 OpenAPI Client and Server Code Generator
 ----------------------------------------
 

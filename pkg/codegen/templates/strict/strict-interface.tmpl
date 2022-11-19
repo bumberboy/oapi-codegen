@@ -2,7 +2,7 @@
     {{$opid := .OperationId -}}
     type {{$opid | ucFirst}}RequestObject struct {
         {{range .PathParams -}}
-            {{.GoName | ucFirst}} {{.TypeDef}} {{.JsonTag}}
+            {{.GoName | prefixReservedWord | ucFirst}} {{.TypeDef}} {{.JsonTag}}
         {{end -}}
         {{if .RequiresParamObject -}}
             Params {{$opid}}Params
