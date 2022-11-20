@@ -1,7 +1,6 @@
 // ServerInterfaceWrapper converts contexts to parameters.
 type ServerInterfaceWrapper struct {
     Handler ServerInterface
-    HandlerMiddlewares []MiddlewareFunc
     ErrorHandler func(*gin.Context, error, int)
 }
 
@@ -38,10 +37,6 @@ func (siw *ServerInterfaceWrapper) {{$opid}}(c *gin.Context) {
   {{end}}
 
   {{end}}
-
-{{range .SecurityDefinitions}}
-  c.Set({{.ProviderName | ucFirst}}Scopes, {{toStringArray .Scopes}})
-{{end}}
 
   {{if .RequiresParamObject}}
     // Parameter object where we will unmarshal all parameters from the context
@@ -171,10 +166,6 @@ func (siw *ServerInterfaceWrapper) {{$opid}}(c *gin.Context) {
       {{- end}}
     {{end}}
   {{end}}
-
-  for _, middleware := range siw.HandlerMiddlewares {
-    middleware(c)
-  }
 
   siw.Handler.{{.OperationId}}(c{{genParamNames .PathParams}}{{if .RequiresParamObject}}, params{{end}})
 }
