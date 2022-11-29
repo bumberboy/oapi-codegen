@@ -29,9 +29,9 @@ func (w *ServerInterfaceWrapper) {{.OperationId}} (ctx *fiber.Ctx) error {
 {{end}}
 {{end}}
 
-{{range .SecurityDefinitions}}
-    ctx.Set({{.ProviderName | sanitizeGoIdentity | ucFirst}}Scopes, {{toStringArray .Scopes}})
-{{end}}
+{{/*{{range .SecurityDefinitions}}*/}}
+{{/*    ctx.Set({{.ProviderName | sanitizeGoIdentity | ucFirst}}Scopes, {{toStringArray .Scopes}})*/}}
+{{/*{{end}}*/}}
 
 {{if .RequiresParamObject}}
     // Parameter object where we will unmarshal all parameters from the context
@@ -101,7 +101,6 @@ func (w *ServerInterfaceWrapper) {{.OperationId}} (ctx *fiber.Ctx) error {
 {{end}}{{/* .CookieParams */}}
 
 {{end}}{{/* .RequiresParamObject */}}
-    // Invoke the callback with all the unmarshalled arguments
     err = w.Handler.{{.OperationId}}(ctx{{genParamNames .PathParams}}{{if .RequiresParamObject}}, params{{end}})
     return err
 }

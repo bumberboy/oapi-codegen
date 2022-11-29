@@ -1,6 +1,9 @@
 {{range .}}
     {{$opid := .OperationId -}}
     type {{$opid | ucFirst}}RequestObject struct {
+    {{if .SecurityDefinitions -}}
+        Token *model.Identity
+    {{end -}}
     {{range .PathParams -}}
         {{.GoName | prefixReservedWord | ucFirst}} {{.TypeDef}} {{.JsonTag}}
     {{end -}}
@@ -130,6 +133,6 @@ type StrictServerInterface interface {
 {{range .}}{{.SummaryAsComment }}
 // ({{.Method}} {{.Path}})
 {{$opid := .OperationId -}}
-{{$opid}}(ctx context.Context, request {{$opid | ucFirst}}RequestObject) ({{$opid | ucFirst}}ResponseObject, error)
+{{$opid}}(ctx *fiber.Ctx, request {{$opid | ucFirst}}RequestObject) ({{$opid | ucFirst}}ResponseObject, error)
 {{end}}{{/* range . */ -}}
 }

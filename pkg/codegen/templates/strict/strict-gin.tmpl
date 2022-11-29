@@ -1,14 +1,11 @@
-type StrictHandlerFunc func(ctx *gin.Context, args interface{}) (interface{}, error)
-
-type StrictMiddlewareFunc func(f StrictHandlerFunc, operationID string) StrictHandlerFunc
-
-func NewStrictHandler(ssi StrictServerInterface, middlewares []StrictMiddlewareFunc) ServerInterface {
-    return &strictHandler{ssi: ssi, middlewares: middlewares}
+func NewStrictHandler(ssi StrictServerInterface, auth server.GinHandlerWithErr, middlewares ...server.StrictMiddlewareFunc) ServerInterface {
+    return &strictHandler{ssi: ssi, auth: auth, middlewares: middlewares}
 }
 
 type strictHandler struct {
-    ssi StrictServerInterface
-    middlewares []StrictMiddlewareFunc
+    ssi         StrictServerInterface
+    auth        server.GinHandlerWithErr
+    middlewares []server.StrictMiddlewareFunc
 }
 
 {{range .}}
@@ -16,6 +13,26 @@ type strictHandler struct {
     // {{$opid}} operation middleware
     func (sh *strictHandler) {{.OperationId}}(ctx *gin.Context{{genParamArgs .PathParams}}{{if .RequiresParamObject}}, params {{.OperationId}}Params{{end}}) {
         var request {{$opid | ucFirst}}RequestObject
+
+        {{ if .SecurityDefinitions -}}
+        // ===== AUTH CHECK =====
+        {{- range .SecurityDefinitions}}
+        ctx.Set({{.ProviderName | ucFirst}}Scopes, {{toStringArray .Scopes}})
+        {{- end}}
+        if err := sh.auth(ctx); err != nil {
+            // ctx would have been filled by auth handlers
+            return
+        }
+
+        identity, exists := ctx.Get("id")
+        if !exists {
+            ctx.Status(http.StatusUnauthorized)
+            ctx.Error(errors.New("missing identity"))
+            return
+        }
+        request.Token = *identity.(*model.Identity)
+        // ===== AUTH END =====
+        {{end -}}
 
         {{range .PathParams -}}
             {{$varName := .GoVariableName -}}

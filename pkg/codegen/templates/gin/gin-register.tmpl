@@ -29,15 +29,6 @@ func RegisterHandlersWithOptions(router *gin.Engine, si ServerInterface, options
 
 {{range .}}
     var cHandlers{{.OperationId}} = options.Middlewares
-    {{- if .SecurityDefinitions}}
-        cHandlers{{.OperationId}} = append([]gin.HandlerFunc{
-        func(c *gin.Context) {
-        {{- range .SecurityDefinitions}}
-            c.Set({{.ProviderName | ucFirst}}Scopes, {{toStringArray .Scopes}})
-        {{- end}}
-        },
-    }, cHandlers{{.OperationId}}...)
-    {{- end}}
     cHandlers{{.OperationId}} = append(cHandlers{{.OperationId}}, wrapper.{{.OperationId}})
     router.{{.Method }}(options.BaseURL+"{{.Path | swaggerUriToGinUri }}", cHandlers{{.OperationId}}...)
 {{end}}

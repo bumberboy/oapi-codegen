@@ -1,14 +1,12 @@
-type StrictHandlerFunc func(ctx *fiber.Ctx, args interface{}) (interface{}, error)
-
-type StrictMiddlewareFunc func(f StrictHandlerFunc, operationID string) StrictHandlerFunc
-
-func NewStrictHandler(ssi StrictServerInterface, middlewares []StrictMiddlewareFunc) ServerInterface {
-return &strictHandler{ssi: ssi, middlewares: middlewares}
+func NewStrictHandler(ssi StrictServerInterface, auth func (ctx *fiber.Ctx, scopes []string) (*model.Identity, error),
+middlewares ...server.StrictMiddlewareFunc) ServerInterface {
+return &strictHandler{ssi: ssi, auth: auth, middlewares: middlewares}
 }
 
 type strictHandler struct {
-ssi StrictServerInterface
-middlewares []StrictMiddlewareFunc
+ssi         StrictServerInterface
+auth        func (ctx *fiber.Ctx, scopes []string) (*model.Identity, error)
+middlewares []server.StrictMiddlewareFunc
 }
 
 {{range .}}
@@ -16,6 +14,20 @@ middlewares []StrictMiddlewareFunc
     // {{$opid}} operation middleware
     func (sh *strictHandler) {{.OperationId}}(ctx *fiber.Ctx{{genParamArgs .PathParams}}{{if .RequiresParamObject}}, params {{.OperationId}}Params{{end}}) error {
     var request {{$opid | ucFirst}}RequestObject
+
+    {{ if .SecurityDefinitions -}}
+        {{range .SecurityDefinitions -}}
+            // ===== AUTH CHECK =====
+            identity, err := sh.auth(ctx, {{toStringArray .Scopes}})
+            if err != nil {
+            return err
+            }
+            if identity != nil {
+            request.Token = identity
+            }
+            // ===== AUTH END =====
+        {{end -}}
+    {{end -}}
 
     {{range .PathParams -}}
         {{$varName := .GoVariableName -}}
@@ -69,7 +81,7 @@ middlewares []StrictMiddlewareFunc
     {{end}}{{/* range .Bodies */}}
 
     handler := func(ctx *fiber.Ctx, request interface{}) (interface{}, error){
-    return sh.ssi.{{.OperationId}}(ctx.Context(), request.({{$opid | ucFirst}}RequestObject))
+    return sh.ssi.{{.OperationId}}(ctx, request.({{$opid | ucFirst}}RequestObject))
     }
     for _, middleware := range sh.middlewares {
     handler = middleware(handler, "{{.OperationId}}")

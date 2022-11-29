@@ -1,6 +1,9 @@
 {{range .}}
     {{$opid := .OperationId -}}
     type {{$opid | ucFirst}}RequestObject struct {
+        {{if .SecurityDefinitions -}}
+            Token model.Identity
+        {{end -}}
         {{range .PathParams -}}
             {{.GoName | prefixReservedWord | ucFirst}} {{.TypeDef}} {{.JsonTag}}
         {{end -}}
