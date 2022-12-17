@@ -15,7 +15,7 @@
     {{end -}}
     {{$multipleBodies := gt (len .Bodies) 1 -}}
     {{range .Bodies -}}
-        {{if $multipleBodies}}{{.NameTag}}{{end}}Body {{if eq .NameTag "Multipart"}}*multipart.Reader{{else if ne .NameTag ""}}*{{$opid}}{{.NameTag}}RequestBody{{else}}io.Reader{{end}}
+        {{if $multipleBodies}}{{.NameTag}}{{end}}Body {{if eq .NameTag "Multipart"}}*multipart.Form{{else if ne .NameTag ""}}*{{$opid}}{{.NameTag}}RequestBody{{else}}io.Reader{{end}}
     {{end -}}
     }
 
@@ -71,7 +71,11 @@
                 c.Set("{{.Name}}", fmt.Sprint(response.Headers.{{.GoName}}))
             {{end -}}
             {{if eq .NameTag "Multipart" -}}
+                r, w := io.Pipe()
                 writer := multipart.NewWriter(w)
+                if err := c.SendStream(r); err != nil {
+                return err
+                }
             {{end -}}
             c.Set("Content-Type", {{if eq .NameTag "Multipart"}}writer.FormDataContentType(){{else if .HasFixedContentType }}"{{.ContentType}}"{{else}}response.ContentType{{end}})
             {{if not .IsSupported -}}
