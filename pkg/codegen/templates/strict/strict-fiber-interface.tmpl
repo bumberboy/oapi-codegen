@@ -102,8 +102,10 @@
                 if closer, ok := response.Body.(io.ReadCloser); ok {
                 defer closer.Close()
                 }
-                _, err := io.Copy(w, response.Body)
-                return err
+                if err := c.SendStream(response.Body); err != nil {
+                    return err
+                }
+                return nil
             {{end}}{{/* if eq .NameTag "JSON" */ -}}
             }
         {{end}}
