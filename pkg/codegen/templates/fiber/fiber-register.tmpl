@@ -1,8 +1,7 @@
 // FiberServerOptions provides options for the Fiber server.
 type FiberServerOptions struct {
     BaseURL string
-    Middlewares []MiddlewareFunc
-    ErrorHandler func(*fiber.Ctx, error, int)
+    GetQBaseInternalID func(ctx *fiber.Ctx, qbID string) (string, error)
 }
 
 // RegisterHandlers creates http.Handler with routing matching OpenAPI spec.
@@ -13,18 +12,10 @@ func RegisterHandlers(router fiber.Router, si ServerInterface) fiber.Router {
 // RegisterHandlersWithOptions creates http.Handler with additional options
 func RegisterHandlersWithOptions(router fiber.Router, si ServerInterface, options FiberServerOptions) fiber.Router {
     {{if .}}
-    errorHandler := options.ErrorHandler
-
-    if errorHandler == nil {
-        errorHandler = func(c *fiber.Ctx, err error, statusCode int) {
-            c.JSON(map[string]string{"error": err.Error()})
-        }
-    }
 
     wrapper := ServerInterfaceWrapper{
         Handler: si,
-        HandlerMiddlewares: options.Middlewares,
-        ErrorHandler: errorHandler,
+        GetQBaseInternalID: options.GetQBaseInternalID,
     }
     {{end}}
     {{range .}}

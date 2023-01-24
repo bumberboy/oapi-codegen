@@ -1,8 +1,7 @@
 // ServerInterfaceWrapper converts fiber contexts to parameters.
 type ServerInterfaceWrapper struct {
     Handler ServerInterface
-    HandlerMiddlewares []MiddlewareFunc
-    ErrorHandler func(*fiber.Ctx, error, int)
+    GetQBaseInternalID func(ctx *fiber.Ctx, qbID string) (string, error)
 }
 
 type MiddlewareFunc func(http.HandlerFunc) http.HandlerFunc
@@ -25,6 +24,12 @@ func (w *ServerInterfaceWrapper) {{.OperationId}} (ctx *fiber.Ctx) error {
     err = runtime.BindStyledParameterWithLocation("{{.Style}}",{{.Explode}}, "{{.ParamName}}", runtime.ParamLocationPath, ctx.Params("{{.ParamName}}"), &{{$varName}})
     if err != nil {
         return fiber.NewError(http.StatusBadRequest, fmt.Sprintf("Invalid format for parameter {{.ParamName}}: %s", err))
+    }
+{{end}}
+{{if eq (.ParamName | lower) "qbaseid"}}
+    {{$varName}}, err = w.GetQBaseInternalID(ctx, {{$varName}})
+    if err != nil {
+    return err
     }
 {{end}}
 {{end}}
