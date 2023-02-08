@@ -86,6 +86,16 @@
         {{end}}
     {{end}}
 
+    // FromBytes overwrites any union data inside the {{$typeName}} with the provided bytes
+    func (t *{{$typeName}}) FromBytes (v []byte) {
+        t.union = v
+    }
+
+    // ToBytes returns the union data inside the {{$typeName}} as bytes
+    func (t *{{$typeName}}) ToBytes() []byte {
+        return t.union
+    }
+
     func (t {{.TypeName}}) MarshalJSON() ([]byte, error) {
         b, err := t.union.MarshalJSON()
         {{if ne 0 (len .Schema.Properties) -}}
